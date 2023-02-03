@@ -125,7 +125,6 @@ if [[ -z ${spId}  ]]; then
     echo "INFO:Service Principal - $spname a does not exist...."
 else
     echo "INFO:Service Principal - $spname already exists...."
-    echo "INFO:Please choose altenative name"
 fi
 }
 
@@ -319,8 +318,8 @@ echo "INFO:Template yaml files generated in deploy directory..."
 
 echo "INFO:Creating Reporting deployment...."
 kubectl apply -f ../deploy/azure-premium.yaml
-kubectl apply -f ../deploy/influxdb_svc.yaml
-kubectl apply -f ../deploy/jmeter_influx_configmap.yaml
+# kubectl apply -f ../deploy/influxdb_svc.yaml
+# kubectl apply -f ../deploy/jmeter_influx_configmap.yaml
 kubectl apply -f ../deploy/reporter.yaml
 echo "INFO:Reporting deployment complete...."
 echo "INFO:Creating Jmeter Slaves.."
@@ -333,7 +332,7 @@ kubectl apply -f ../deploy/jmeter-master-configmap.yaml
 kubectl apply -f ../deploy/jmaster.yaml
 echo "INFO: Jmeter Master deployment complete...."
 
-influxdb_pod=$(kubectl get pods | grep report | awk '{print $1}')
+# influxdb_pod=$(kubectl get pods | grep report | awk '{print $1}')
 echo "INFO: Waiting for reporting container to start...."
 
 COUNTER=1
@@ -347,25 +346,25 @@ done
 echo "INFO: reporting container started...."
 echo "INFO: Adding jmeter database to Influxdb...."
 
-kubectl exec -ti $influxdb_pod -- influx -execute 'CREATE DATABASE jmeter'
+# kubectl exec -ti $influxdb_pod -- influx -execute 'CREATE DATABASE jmeter'
 
-echo "INFO: Jmeter database added to Influxdb...."
+# echo "INFO: Jmeter database added to Influxdb...."
 echo "INFO: Adding default datasource to grafana...."
 #give Grafana time to start
 # changed to remove sleep and replace with kubectl action
 #sleep 20
 #kubectl exec -ti $influxdb_pod -- curl 'http://admin:admin@localhost:3000/api/datasources' -X POST -H 'Content-Type: application/json;charset=UTF-8' --data-binary '{"name":"jmeterdb","type":"influxdb","url":"http://localhost:8086","access":"proxy","isDefault":true,"database":"jmeter","user":"admin","password":"admin"}'
 
-kubectl cp ../deploy/datasource.json $influxdb_pod:/datasource.json
-kubectl exec -ti $influxdb_pod -- /bin/bash -c 'until [[ $(curl "http://admin:admin@localhost:3000/api/datasources" -X POST -H "Content-Type: application/json;charset=UTF-8" --data-binary @datasource.json) ]]; do sleep 5; done'
+# kubectl cp ../deploy/datasource.json $influxdb_pod:/datasource.json
+# kubectl exec -ti $influxdb_pod -- /bin/bash -c 'until [[ $(curl "http://admin:admin@localhost:3000/api/datasources" -X POST -H "Content-Type: application/json;charset=UTF-8" --data-binary @datasource.json) ]]; do sleep 5; done'
 
 echo "INFO: Default datasource added to grafana...."
 
 
-echo "INFO: Adding default dashboard"
-kubectl cp ../deploy/jmeterDash.json $influxdb_pod:/jmeterDash.json
+# echo "INFO: Adding default dashboard"
+# kubectl cp ../deploy/jmeterDash.json $influxdb_pod:/jmeterDash.json
 
-kubectl exec -ti $influxdb_pod -- curl 'http://admin:admin@localhost:3000/api/dashboards/db' -X POST -H 'Content-Type: application/json;charset=UTF-8' --data-binary '@jmeterDash.json'
+# kubectl exec -ti $influxdb_pod -- curl 'http://admin:admin@localhost:3000/api/dashboards/db' -X POST -H 'Content-Type: application/json;charset=UTF-8' --data-binary '@jmeterDash.json'
 
 echo "INFO: Default dashboard has been added"
 
@@ -469,7 +468,10 @@ acrName=$acrbase$suffix
 #AKS cluster name
 aksbase="jmeteraks-"
 aksName=$aksbase$suffix
-
+spbase="jmetersp"
+spname=$spbase$suffix
+servicePrincipal=""
+clientSecret=""
 
 #create the required service principal to use with AKS / ACR
 # do this first to prevent acr creation if sp is not correct...
@@ -478,23 +480,22 @@ if [[ -z ${spId}  ]]; then
     echo "Service Principal does not exist...."
     echo "Creating Service Principal..."
     sp=$(az ad sp create-for-rbac -n $spname -o tsv)
+    servicePrincipal=$(echo $sp |awk '{print $1}')
+    clientSecret=$(echo $sp |awk '{print $3}')
     if [ $? -ne 0 ]
         then
             echo "Failed to create service principal, error: '${?}'"
             exit 1
     fi
 else
-    echo "Service Principal - $spname already exists...."
-    echo "please choose altenative name"
+    echo "Service Principal - $spname already exists..."
     exit 1
 fi
 
-servicePrincipal=$(echo $sp |awk '{print $1}')
-clientSecret=$(echo $sp |awk '{print $4}')
 
 if [[ -z ${servicePrincipal}  ]] || [[ -z ${clientSecret}  ]] ;
 then
-    echo "ERROR: Service Principal credentials have not been retrieved exiting...."
+    echo "ERROR: Service Principal credentials have not been retrieved exiting.... ${servicePrincipal}"
     exit 1
 else
     echo "INFO:Service Principal credentials have been created....."
@@ -504,40 +505,31 @@ fi
 ##create acr to use to store containers
 if [[ ! -z ${fwkrg} ]]; then
         echo "Info - Using supplied fwk resource group name"
-        acrCheck=$(az acr check-name --name $acrName -o tsv --query nameAvailable)
-        if [ $acrCheck == "true" ]; then
-            echo "INFO:Container registry [ $acrName ] does not exist...."
-            echo "INFO:Creating container registry..."
-            echo "DEBUG: az acr create --name "$acrName" --resource-group "$fwkrg" --sku Basic --admin-enabled true"
-            az acr create --name $acrName --resource-group $fwkrg --sku Basic --admin-enabled true
-            if [ $? -ne 0 ]
-                then
-                    echo "ERROR: Failed to create container registry in the resource group [ $fwkrg ] "
-                    exit 1
-                else
-                    echo "INFO: Acr $acrName created"
-            fi
-        else
-            echo "Container registry [ $acrName ] already exists...."
-            exit 1
+        echo "INFO:Container registry [ $acrName ] does not exist...."
+        echo "INFO:Creating container registry..."
+        echo "DEBUG: az acr create --name "$acrName" --resource-group "$fwkrg" --sku Basic --admin-enabled true"
+        az acr create --name $acrName --resource-group $fwkrg --sku Basic --admin-enabled true
+        if [ $? -ne 0 ]
+            then
+                echo "ERROR: Failed to create container registry in the resource group [ $fwkrg ] "
+                exit 1
+            else
+                echo "INFO: Acr $acrName created"
         fi
 else
-acrCheck=$(az acr check-name --name $acrName -o tsv --query nameAvailable)
-if [ $acrCheck == "true" ]; then
-    echo "INFO:Container registry [ $acrName ] does not exist...."
-    echo "INFO:Creating container registry..."
-    echo "DEBUG: az acr create --name "$acrName" --resource-group "$resourceGroup" --sku Basic --admin-enabled true"
-    az acr create --name $acrName --resource-group $resourceGroup --sku Basic --admin-enabled true
-    if [ $? -ne 0 ]
-        then
-            echo "ERROR: Failed to create container registry in the resource group [ $resourceGroup ] "
-            exit 1
-        else
-            echo "INFO: Acr $acrName created"
-    fi
-else
-    echo "Container registry [ $acrName ] already exists...."
-    exit 1
+echo "INFO:Container registry [ $acrName ] does not exist...."
+echo "INFO:Creating container registry..."
+echo "DEBUG: az acr create --name "$acrName" --resource-group "$resourceGroup" --sku Basic --admin-enabled true"
+az acr create --name $acrName --resource-group $resourceGroup --sku Basic --admin-enabled true
+acrId=$(az acr show -n $acrName -o tsv --query id)
+az role assignment create --assignee $servicePrincipal --scope $acrId --role AcrPull
+echo "INFO:AcrPull role assigned to $servicePrincipal."
+if [ $? -ne 0 ]
+    then
+        echo "ERROR: Failed to create container registry in the resource group [ $resourceGroup ] "
+        exit 1
+    else
+        echo "INFO: Acr $acrName created"
 fi
 fi
 
@@ -701,9 +693,6 @@ install )
                     (l)
                         location=$OPTARG
                         ;;
-                    (s)
-                        spname=$OPTARG
-                        ;;
                     (v)
                         vnetprefix=$OPTARG
                         ;;
@@ -742,7 +731,7 @@ install )
         done
     shift $((OPTIND -1))
 
-    if [[ -z ${resourceGroup}  ]] || [[ -z ${location}  ]] || [[ -z ${spname}  ]] ;then
+    if [[ -z ${resourceGroup}  ]] || [[ -z ${location}  ]] ;then
         echo "ERROR:Resource Group,location and spname must be provided"
         exit 1
     else

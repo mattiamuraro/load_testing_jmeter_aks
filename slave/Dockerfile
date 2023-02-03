@@ -1,12 +1,8 @@
-FROM openjdk:8-jdk-slim
+FROM amazoncorretto:8-alpine-jdk
 		
 ARG JMETER_VERSION=5.2.1
-		
-RUN apt-get clean && \
-apt-get update && \
-apt-get -qy install \
-wget \
-unzip
+
+RUN apk update && apk add wget unzip
 
 RUN   mkdir /jmeter \
 && cd /jmeter/ \
