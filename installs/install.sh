@@ -22,17 +22,6 @@ echo "INFO: Starting installation action at:"$dt
 
 #script version and date
 get_version(){
-
-    #echo "Installer version 1.1"
-    #echo "Version Date: 29/01/2020"
-    #echo "INFO:Installer version 1.2"
-    #echo "INFO:Version Date: 30/01/2020"
-    #echo "INFO:Installer version 1.3"
-    #echo "INFO:Version Date: 6/02/2020"
-    #echo "INFO:Installer version 1.4"
-    #echo "INFO:Version Date: 20/02/2020"
-    #echo "INFO:Installer version 1.5"
-    #echo "INFO:Version Date: 08/03/2020"
     echo "INFO:Installer version 1.6"
     echo "INFO:Version Date: 22/06/2020"
 }
@@ -203,10 +192,6 @@ if [ -f ../deploy/jmaster.yaml ]; then
 rm -f ../deploy/jmaster.yaml
 fi
 
-if [ -f ../deploy/reporter.yaml ]; then
-rm -f ../deploy/reporter.yaml
-fi
-
 
 }
 
@@ -265,50 +250,10 @@ else
     echo "INFO:Container registry [ $acrName ] exists...."
 fi
 
-#add reporter nodepool
-#check if already exists
-
-reportingnodepool=0
-if [ ! -z $fwkrg ];then
-    for i in $(az aks nodepool list -g $fwkrg --cluster-name $aksName -o tsv --query [].name)
-    do
-        if [ $i == "reporterpool" ]; then
-            echo "INFO: Reporting Node Pool aready exists"
-            reportingnodepool=1
-        fi
-    done
-
-    if [[ $reportingnodepool -eq 0 ]]; then
-        echo "INFO:Adding reporting nodepool..."
-        az aks nodepool add --cluster-name $aksName -g $fwkrg --name reporterpool --node-count 1 --node-vm-size Standard_D8s_v3
-        reporternode=$(kubectl get nodes |awk '/aks-reporterpool/ {print $1}')
-        echo "INFO: Tainting reporting node..."
-        kubectl taint nodes $reporternode sku=reporter:NoSchedule
-        echo "INFO: Tainting reporting node completed..."
-    fi
-else
-    for i in $(az aks nodepool list -g $resourceGroup --cluster-name $aksName -o tsv --query [].name)
-    do
-        if [ $i == "reporterpool" ]; then
-            echo "INFO: Reporting Node Pool aready exists"
-            reportingnodepool=1
-        fi
-    done
-
-    if [[ $reportingnodepool -eq 0 ]]; then
-        echo "INFO:Adding reporting nodepool..."
-        az aks nodepool add --cluster-name $aksName -g $resourceGroup --name reporterpool --node-count 1 --node-vm-size Standard_D8s_v3
-        reporternode=$(kubectl get nodes |awk '/aks-reporterpool/ {print $1}')
-        echo "INFO: Tainting reporting node..."
-        kubectl taint nodes $reporternode sku=reporter:NoSchedule
-        echo "INFO: Tainting reporting node completed..."
-    fi
-fi
 echo "INFO:Generating yaml files from templates..."
 
 # read the yaml template from a file and substitute the string 
 # ###acrname### with the value of the acrName variable
-sed "s/###acrname###/$acrName/g" ../deploy/reporter.yaml.template > ../deploy/reporter.yaml
 sed "s/###acrname###/$acrName/g" ../deploy/jslave.yaml.template > ../deploy/jslave.yaml
 sed "s/###acrname###/$acrName/g" ../deploy/jmaster.yaml.template > ../deploy/jmaster.yaml
 
@@ -316,12 +261,6 @@ echo "INFO:Template yaml files generated in deploy directory..."
 
 # apply the yaml with the substituted value
 
-echo "INFO:Creating Reporting deployment...."
-kubectl apply -f ../deploy/azure-premium.yaml
-# kubectl apply -f ../deploy/influxdb_svc.yaml
-# kubectl apply -f ../deploy/jmeter_influx_configmap.yaml
-kubectl apply -f ../deploy/reporter.yaml
-echo "INFO:Reporting deployment complete...."
 echo "INFO:Creating Jmeter Slaves.."
 kubectl apply -f ../deploy/jslaves_svc.yaml
 kubectl apply -f ../deploy/jslave.yaml
@@ -332,50 +271,10 @@ kubectl apply -f ../deploy/jmeter-master-configmap.yaml
 kubectl apply -f ../deploy/jmaster.yaml
 echo "INFO: Jmeter Master deployment complete...."
 
-# influxdb_pod=$(kubectl get pods | grep report | awk '{print $1}')
-echo "INFO: Waiting for reporting container to start...."
-
-COUNTER=1
-while [ `kubectl get pods |grep report |awk '{print $3}'` != "Running" ]
-do
-echo "INFO: Checking reporting pod is running ...check#"$COUNTER
-let COUNTER++
-sleep 5
-done
-
-echo "INFO: reporting container started...."
-echo "INFO: Adding jmeter database to Influxdb...."
-
-# kubectl exec -ti $influxdb_pod -- influx -execute 'CREATE DATABASE jmeter'
-
-# echo "INFO: Jmeter database added to Influxdb...."
-echo "INFO: Adding default datasource to grafana...."
-#give Grafana time to start
-# changed to remove sleep and replace with kubectl action
-#sleep 20
-#kubectl exec -ti $influxdb_pod -- curl 'http://admin:admin@localhost:3000/api/datasources' -X POST -H 'Content-Type: application/json;charset=UTF-8' --data-binary '{"name":"jmeterdb","type":"influxdb","url":"http://localhost:8086","access":"proxy","isDefault":true,"database":"jmeter","user":"admin","password":"admin"}'
-
-# kubectl cp ../deploy/datasource.json $influxdb_pod:/datasource.json
-# kubectl exec -ti $influxdb_pod -- /bin/bash -c 'until [[ $(curl "http://admin:admin@localhost:3000/api/datasources" -X POST -H "Content-Type: application/json;charset=UTF-8" --data-binary @datasource.json) ]]; do sleep 5; done'
-
-echo "INFO: Default datasource added to grafana...."
-
-
-# echo "INFO: Adding default dashboard"
-# kubectl cp ../deploy/jmeterDash.json $influxdb_pod:/jmeterDash.json
-
-# kubectl exec -ti $influxdb_pod -- curl 'http://admin:admin@localhost:3000/api/dashboards/db' -X POST -H 'Content-Type: application/json;charset=UTF-8' --data-binary '@jmeterDash.json'
-
-echo "INFO: Default dashboard has been added"
-
 echo "INFO: kubernetes details..."
 kubectl get -n default all
 
 
-lbIp=$(kubectl get svc |grep reporter |awk '{print $4}')
-
-echo "#########################################"
-echo "## Grafana can be accessed at: "$lbIp" ##"
 echo "#########################################"
 echo "## AKS cluster name is: "$aksName"     ##"
 echo "#########################################"
@@ -535,7 +434,7 @@ fi
 
 
 
-##build and push the master,slave and reporter images to acr
+##build and push the master and slave images to acr
 
 
 if ! az acr repository show -n $acrName --image testframework/jmetermaster:latest &>/dev/null; then
@@ -568,94 +467,27 @@ else
     echo "INFO:jmeterslave:lastest already existing in acr...."
 fi
 
-if ! az acr repository show -n $acrName --image testframework/reporter:latest &>/dev/null; then
-    echo "INFO:slave image does not exist....creating..."
-    echo "INFO:building jmeter reporter container and pushing to [ $acrName ]"
-    az acr build -t testframework/reporter:latest -f ../reporter/Dockerfile -r $acrName .
-    if [ $? -ne 0 ]
+echo "INFO: Framework Deployment will be without a Vnet"
+##create default AKS cluster with node size Standard_D2s_V3
+echo "INFO:Creating AKS cluster $aksName with D2s_v3 nodes...."
+az aks create \
+    --resource-group $resourceGroup \
+    --name $aksName \
+    --node-count 1 \
+    --service-principal $servicePrincipal \
+    --client-secret $clientSecret \
+    --enable-cluster-autoscaler \
+    --min-count 1 \
+    --max-count 50 \
+    --generate-ssh-keys \
+    --disable-rbac \
+    --node-vm-size Standard_D2s_v3 \
+    --location $location
+
+if [ $? -ne 0 ]
     then
-        echo "ERROR:Failed to build and push slave error: '${?}'"
-        exit 1
-    else
-        echo "INFO:jmeter reporter container completed...."
-    fi
-else
-    echo "INFO:reporter:lastest already existing in acr...."
-fi
-
-if [ ! -z ${vnetName} ]; then
-    ## assign role to SP
-    az role assignment create --assignee $servicePrincipal --scope $VNET_ID --role Contributor
-    ##create vnet and subnet if required for deployment
-    echo "INFO: Creating AKS cluster with Vnet deployment"
-    ##create default AKS cluster with node size Standard_D2s_V3
-    echo "INFO:Creating AKS cluster $aksName with D2s_v3 nodes...."
-    if [ ! -z ${fwkrg} ]; then
-        az aks create \
-                --resource-group $fwkrg \
-                --name $aksName \
-                --node-count 3 \
-                --service-principal $servicePrincipal \
-                --client-secret $clientSecret \
-                --enable-cluster-autoscaler \
-                --min-count 1 \
-                --max-count 50 \
-                --generate-ssh-keys \
-                --disable-rbac \
-                --node-vm-size Standard_D2s_v3 \
-                --location $location \
-                --vnet-subnet-id $SUBNET_ID
-
-        if [ $? -ne 0 ]
-        then
-            echo "ERROR: Failed to create aks cluster, error: '${?}'"
-            clean_up
-        fi
-    else
-        az aks create \
-                --resource-group $resourceGroup \
-                --name $aksName \
-                --node-count 3 \
-                --service-principal $servicePrincipal \
-                --client-secret $clientSecret \
-                --enable-cluster-autoscaler \
-                --min-count 1 \
-                --max-count 50 \
-                --generate-ssh-keys \
-                --disable-rbac \
-                --node-vm-size Standard_D2s_v3 \
-                --location $location \
-                --vnet-subnet-id $SUBNET_ID
-
-        if [ $? -ne 0 ]
-        then
-            echo "ERROR: Failed to create aks cluster, error: '${?}'"
-            clean_up
-        fi
-    fi
-else
-    echo "INFO: Framework Deployment will be without a Vnet"
-    ##create default AKS cluster with node size Standard_D2s_V3
-    echo "INFO:Creating AKS cluster $aksName with D2s_v3 nodes...."
-    az aks create \
-        --resource-group $resourceGroup \
-        --name $aksName \
-        --node-count 3 \
-        --service-principal $servicePrincipal \
-        --client-secret $clientSecret \
-        --enable-cluster-autoscaler \
-        --min-count 1 \
-        --max-count 50 \
-        --generate-ssh-keys \
-	    --disable-rbac \
-	    --node-vm-size Standard_D2s_v3 \
-	    --location $location
-
-    if [ $? -ne 0 ]
-        then
-            echo "ERROR: Failed to create aks cluster, error: '${?}'"
-            clean_up
-    fi
+        echo "ERROR: Failed to create aks cluster, error: '${?}'"
+        clean_up
 fi
 
 # call the kubernetes install function to deploy kube components

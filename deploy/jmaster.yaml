@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: jmmaster
-        image: testframeworkacr66b5d.azurecr.io/testframework/jmetermaster:latest
+        image: testframeworkacr943a6.azurecr.io/testframework/jmetermaster:latest
         imagePullPolicy: IfNotPresent
         command: [ "/bin/bash", "-c", "--" ]
         args: [ "while true; do sleep 30; done;" ]

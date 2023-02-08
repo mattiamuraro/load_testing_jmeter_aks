@@ -20,8 +20,8 @@ spec:
           args: [ "chown grafana /var/lib/grafana; chgrp grafana /var/lib/grafana;service grafana-server start;while true; do sleep 30; done;" ]
           resources:
             limits:
-              cpu: "4"
-              memory: 2G
+              cpu: "1"
+              memory: 1G
           volumeMounts:
             - name: grafana-volume
               mountPath: /var/lib/grafana
